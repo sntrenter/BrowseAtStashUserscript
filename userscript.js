@@ -1,76 +1,99 @@
 // ==UserScript==
-// @name         Browse at folder
+// @name         Browse at folder update
 // @namespace    http://tampermonkey.net/
-// @version      2024-12-09
-// @description  Add a button to search for files in the same folder
+// @version      2024-12-29
+// @description  Add a button to search for files in the same folder and update it on field or video changes
 // @author       sntrenter
 // @match        http://localhost:9999/*
 // @icon         https://www.google.com/s2/favicons?sz=64&domain=undefined.localhost
 // @grant        none
 // ==/UserScript==
-//may need to fix encodings https://www.w3schools.com/tags/ref_urlencode.ASP
-(function() {
+
+(function () {
     'use strict';
-    console.log("hello world!");
 
-    // Add a button to search for files in the same folder
-    document.body.addEventListener('click', function (event) {
-        // File Info tab is clicked
-        if (event.target.dataset.rbEventKey === "scene-file-info-panel" || event.target.dataset.rbEventKey === "image-file-info-panel") {
-            console.log("hit");
-            let type = event.target.dataset.rbEventKey.split("-")[0] + "s";
-            console.log(type);
+    function createOrUpdateButton(type, tabContent, folderPath) {
+        let adjustedPath = folderPath.replace(/\//g, "\\").replace(/\\/g, "\\\\") + "\\\\";
+        adjustedPath = adjustedPath.replace(/%7B/g, "{").replace(/%7D/g, "}").replace(/%5F/g, "_");
+        const searchParams = `("type":"path","value":"\\"${adjustedPath}\\"","modifier":"INCLUDES")`;
+        const searchURL = `/${type}?c=${encodeURIComponent(searchParams)}&sortby=path`;
 
-            // Wait for the panel to render
-            setTimeout(() => {
-                const tabContent = document.querySelector("div.tab-content");
-                if (!tabContent) return;
+        const oldButton = document.querySelector("#folder-search-button");
+        if (oldButton) {
+            oldButton.remove();
+        }
 
-                // Find the file path link
-                const fileLink = Array.from(tabContent.querySelectorAll("a"))
-                    .find(link => link.href.startsWith("file:///"));
+        const button = document.createElement("a");
+        button.id = "folder-search-button";
+        button.textContent = "Search Folder";
+        button.href = searchURL;
+        button.style.display = "inline-block";
+        button.style.padding = "10px";
+        button.style.margin = "10px";
+        button.style.backgroundColor = "#007BFF";
+        button.style.color = "white";
+        button.style.textDecoration = "none";
+        button.style.borderRadius = "5px";
+        button.style.textAlign = "center";
+        button.style.cursor = "pointer";
 
-                if (fileLink) {
-                    // Extract the folder path
-                    const filePath = new URL(fileLink.href).pathname;
-                    const folderPath = filePath.substring(0, filePath.lastIndexOf('/')).replace(/%20/g, " ");
-                    console.log(folderPath);
+        button.onmouseenter = () => (button.style.backgroundColor = "#0056b3");
+        button.onmouseleave = () => (button.style.backgroundColor = "#007BFF");
 
-                    // Double encode the folder path (but fix escaping issues manually)
-                    let adjustedPath = folderPath.replace(/\//g, "\\").replace(/\\/g, "\\\\") + "\\\\";
-                    adjustedPath = adjustedPath.replace(/%7B/g,"{").replace(/%7D/g,"}").replace(/%5F/g, "_");
-                    const searchParams = `("type":"path","value":"\\"${adjustedPath}\\"","modifier":"INCLUDES")`;
+        tabContent.prepend(button);
+    }
 
-                    console.log(adjustedPath)
+    function updateButton() {
+        setTimeout(() => {
+            const tabContent = document.querySelector("div.tab-content");
+            if (!tabContent) return;
 
-                    // Do not double-encode backslashes, encode the whole string correctly
-                    const searchURL = `/${type}?c=${encodeURIComponent(searchParams)}&sortby=path`;
-                    console.log(searchURL);
+            const fileLink = Array.from(tabContent.querySelectorAll("a"))
+                .find(link => link.href.startsWith("file:///"));
 
+            if (fileLink) {
+                const filePath = new URL(fileLink.href).pathname;
+                const folderPath = filePath.substring(0, filePath.lastIndexOf('/')).replace(/%20/g, " ");
+                console.log(folderPath);
 
-                    // Add a hyperlink (styled as a button) to navigate to the search page
-                    if (!document.querySelector("#folder-search-button")) {
-                        const button = document.createElement("a");
-                        button.id = "folder-search-button";
-                        button.textContent = "Search Folder";
-                        button.href = searchURL; // Set the URL
-                        button.style.display = "inline-block";
-                        button.style.padding = "10px";
-                        button.style.margin = "10px";
-                        button.style.backgroundColor = "#007BFF";
-                        button.style.color = "white";
-                        button.style.textDecoration = "none";
-                        button.style.borderRadius = "5px";
-                        button.style.textAlign = "center";
-                        button.style.cursor = "pointer";
+                const type = "scenes";
+                createOrUpdateButton(type, tabContent, folderPath);
+            }
+        }, 100);
+    }
 
-                        button.onmouseenter = () => (button.style.backgroundColor = "#0056b3");
-                        button.onmouseleave = () => (button.style.backgroundColor = "#007BFF");
+    function monitorVideoChanges() {
+        const video = document.querySelector("#VideoJsPlayer_html5_api");
 
-                        tabContent.prepend(button);
+        if (video) {
+            console.log("Monitoring video element for changes...");
+
+            const observer = new MutationObserver((mutations) => {
+                for (const mutation of mutations) {
+                    if (mutation.attributeName === "src" || mutation.attributeName === "poster") {
+                        console.log("Video attribute changed:", mutation.attributeName);
+                        updateButton();
                     }
                 }
-            }, 100); // Allow time for the tab content to load
+            });
+
+            observer.observe(video, {
+                attributes: true, // Observe attribute changes
+                attributeFilter: ["src", "poster"], // Only watch for `src` and `poster` changes
+            });
+        } else {
+            console.log("Video element not found. Retrying...");
+            setTimeout(monitorVideoChanges, 100); // Retry if the video element is not yet available
+        }
+    }
+
+    document.body.addEventListener("click", (event) => {
+        if (event.target.dataset.rbEventKey === "scene-file-info-panel" || event.target.dataset.rbEventKey === "image-file-info-panel") {
+            updateButton();
         }
     });
+
+    // Initial button setup and monitor video changes
+    updateButton();
+    monitorVideoChanges();
 })();
